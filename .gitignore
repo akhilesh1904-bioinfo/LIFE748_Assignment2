@@ -1,0 +1,22 @@
+# Raw sequencing data
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+
+# Large analysis outputs
+*.bam
+*.sam
+*.paf
+*.mmi
+
+# Tool output folders you may not want to track fully
+part1_assembly_annotation/assembly/
+part1_assembly_annotation/annotation/
+part1_assembly_annotation/qc/
+
+# Python/R temp files
+__pycache__/
+*.pyc
+.Rhistory
+.RData
