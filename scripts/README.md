@@ -2,6 +2,7 @@ Title
 # LIFE748 Genome Assembly and Annotation Benchmarking
 
 Description
+
 This repository contains scripts and analysis workflows for benchmarking genome assembly (Flye, SPAdes) and annotation tools (Prokka, Bakta) using PacBio HiFi E. coli data (GN6 dataset).
 
 Workflow
