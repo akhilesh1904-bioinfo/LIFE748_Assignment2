@@ -19,9 +19,11 @@ Tools Used
 - Bakta
 
 Data
+
 PacBio HiFi reads (GN6 sample, ~30× coverage)
 
 How to Run
+
 bash scripts/run_flye.sh
 bash scripts/run_spades.sh
 bash scripts/run_prokka.sh
