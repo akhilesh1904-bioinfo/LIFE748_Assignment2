@@ -1,0 +1,258 @@
+---
+
+title: "LIFE748 Assessment 2 - Part 2: Machine Learning Analysis of Differential Expression"
+
+---
+
+# GAI Declaration
+
+**Tool used:** ChatGPT (OpenAI)
+
+**Purpose of use:** Assistance with R code for differential expression analysis, unsupervised clustering, supervised classification, debugging, and interpretation.
+
+**Prompts used:**\
+1. "Help me perform PCA, k-means clustering and hierarchical clustering on DEG expression data in R."\
+2. "How do I run logistic regression, LDA and SVM on RNA-seq DEG data in R?"\
+3. "How do I evaluate model performance using confusion matrices, sensitivity and specificity in R?"
+
+# Introduction
+
+This analysis investigates whether machine learning approaches can discriminate between two experimental conditions using *E. coli* gene expression data. The workflow includes differential expression analysis, feature selection, unsupervised clustering, and supervised classification.
+
+# Step 0: Load Required Libraries
+
+```{r}
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(caret)
+library(MASS)
+library(e1071)
+```
+
+# Step 1: Load the Count Matrix and Define Sample Metadata
+
+```{r}
+counts <- read.csv("dataset_LIFE748_2.csv", row.names = 1)
+
+colData <- data.frame(
+  row.names = colnames(counts),
+  Condition = c(rep("CondA", 25), rep("CondB", 25))
+)
+
+dim(counts)
+table(colData$Condition)
+head(counts[, 1:6])
+```
+
+# Step 2: Differential Expression Analysis with DESeq2
+
+```{r}
+dds <- DESeqDataSetFromMatrix(
+  countData = counts,
+  colData = colData,
+  design = ~ Condition
+)
+
+dds <- DESeq(dds)
+
+res <- results(dds)
+res <- as.data.frame(res)
+
+head(res)
+summary(res)
+```
+
+# Step 3: Variance-Stabilising Transformation
+
+```{r}
+vsd <- vst(dds, blind = FALSE)
+normalized_counts <- assay(vsd)
+
+dim(normalized_counts)
+```
+
+# Step 4: Select Differentially Expressed Genes
+
+Relaxed thresholds were used to retain enough informative features for machine learning.
+
+```{r}
+res_clean <- res[!is.na(res$padj), ]
+
+deg_genes <- rownames(
+  res_clean[res_clean$padj < 0.1 & abs(res_clean$log2FoldChange) > 0.5, ]
+)
+
+length(deg_genes)
+head(deg_genes)
+```
+
+# Step 5: Prepare the Machine Learning Dataset
+
+The DEG matrix is transposed so that samples are rows and genes are columns.
+
+```{r}
+deg_matrix <- normalized_counts[deg_genes, ]
+ml_data <- t(deg_matrix)
+ml_data <- as.data.frame(ml_data)
+ml_data$Condition <- colData$Condition
+
+dim(ml_data)
+head(ml_data[, c(1:5, ncol(ml_data))])
+```
+
+# Step 6: Unsupervised Learning
+
+## 6.1 Principal Component Analysis (PCA)
+
+```{r}
+pca_res <- prcomp(ml_data[, -ncol(ml_data)], scale. = TRUE)
+
+pca_df <- data.frame(
+  PC1 = pca_res$x[, 1],
+  PC2 = pca_res$x[, 2],
+  Condition = ml_data$Condition
+)
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Condition)) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  ggtitle("PCA of DEG Expression Profiles")
+```
+
+## 6.2 K-means Clustering
+
+```{r}
+set.seed(123)
+
+km_res <- kmeans(ml_data[, -ncol(ml_data)], centers = 2, nstart = 25)
+
+table(Cluster = km_res$cluster, Condition = ml_data$Condition)
+```
+
+## 6.3 Hierarchical Clustering Heatmap
+
+```{r}
+annotation_df <- data.frame(
+  Condition = ml_data$Condition
+)
+rownames(annotation_df) <- rownames(ml_data)
+
+pheatmap(
+  t(ml_data[, -ncol(ml_data)]),
+  annotation_col = annotation_df,
+  show_colnames = FALSE,
+  main = "Heatmap of Differentially Expressed Genes"
+)
+```
+
+# Step 7: Supervised Learning
+
+## 7.1 Train-Test Split
+
+```{r}
+set.seed(123)
+
+train_index <- createDataPartition(ml_data$Condition, p = 0.7, list = FALSE)
+
+train_data <- ml_data[train_index, ]
+test_data  <- ml_data[-train_index, ]
+
+train_data$Condition <- factor(train_data$Condition)
+test_data$Condition  <- factor(test_data$Condition)
+
+table(train_data$Condition)
+table(test_data$Condition)
+```
+
+## 7.2 Logistic Regression
+
+```{r}
+lr_model <- glm(
+  Condition ~ .,
+  data = train_data,
+  family = "binomial"
+)
+
+lr_prob <- predict(lr_model, test_data, type = "response")
+lr_pred <- ifelse(lr_prob > 0.5, "CondB", "CondA")
+lr_pred <- factor(lr_pred, levels = levels(test_data$Condition))
+
+lr_cm <- confusionMatrix(lr_pred, test_data$Condition)
+lr_cm
+```
+
+## 7.3 Linear Discriminant Analysis (LDA)
+
+```{r}
+lda_model <- lda(Condition ~ ., data = train_data)
+
+lda_pred <- predict(lda_model, test_data)
+lda_class <- lda_pred$class
+
+lda_cm <- confusionMatrix(lda_class, test_data$Condition)
+lda_cm
+```
+
+## 7.4 Support Vector Machine (SVM)
+
+```{r}
+svm_model <- svm(Condition ~ ., data = train_data, kernel = "linear")
+
+svm_pred <- predict(svm_model, test_data)
+
+svm_cm <- confusionMatrix(svm_pred, test_data$Condition)
+svm_cm
+```
+
+# Step 8: Compare Classifier Performance
+
+```{r}
+model_results <- data.frame(
+  Model = c("Logistic Regression", "LDA", "SVM"),
+  Accuracy = c(
+    as.numeric(lr_cm$overall["Accuracy"]),
+    as.numeric(lda_cm$overall["Accuracy"]),
+    as.numeric(svm_cm$overall["Accuracy"])
+  ),
+  Sensitivity = c(
+    as.numeric(lr_cm$byClass["Sensitivity"]),
+    as.numeric(lda_cm$byClass["Sensitivity"]),
+    as.numeric(svm_cm$byClass["Sensitivity"])
+  ),
+  Specificity = c(
+    as.numeric(lr_cm$byClass["Specificity"]),
+    as.numeric(lda_cm$byClass["Specificity"]),
+    as.numeric(svm_cm$byClass["Specificity"])
+  )
+)
+
+model_results
+```
+
+# Step 9: Cross-Validation (Recommended Extension)
+
+A single train-test split can be sensitive to random partitioning. The following code performs 5-fold cross-validation for LDA and SVM to provide a more robust performance estimate.
+
+```{r}
+set.seed(123)
+
+ctrl <- trainControl(method = "cv", number = 5)
+
+cv_lda <- train(
+  Condition ~ .,
+  data = ml_data,
+  method = "lda",
+  trControl = ctrl
+)
+
+cv_svm <- train(
+  Condition ~ .,
+  data = ml_data,
+  method = "svmLinear",
+  trControl = ctrl
+)
+
+cv_lda
+cv_svm
+```
